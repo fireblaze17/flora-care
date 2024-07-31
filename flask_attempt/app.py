@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, make_response
 import pymysql
 import re
 from datetime import datetime
@@ -298,6 +298,12 @@ def search_plants():
         return redirect(url_for('homepage'))
     finally:
         con.close()
+
+
+@app.after_request
+def add_header(response):
+    response.cache_control.no_store = True
+    return response
 
 
 
