@@ -39,6 +39,7 @@ def homepage():
         return redirect(url_for('login'))
     finally:
         con.close()
+        
 
 
 @app.route('/editplant/<int:plant_id>', methods=['GET', 'POST'])
