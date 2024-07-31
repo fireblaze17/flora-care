@@ -30,6 +30,12 @@
         <button type="submit">Add Plant</button>
     </form>
 
+    <!-- Search Form -->
+    <form action="{{ url_for('search_plants') }}" method="get">
+        <input type="text" name="query" placeholder="Search for plants..." style="margin-top: 20px;">
+        <button type="submit">Search</button>
+    </form>
+
     <div class="plant-container">
         {% for plant in plants %}
         <div class="plant-box" id="plant-{{ plant[0] }}">
@@ -96,7 +102,7 @@
                           const lastResetTime = new Date(data.last_reset).getTime();
                           const currentTime = Date.now();
                           const elapsedTime = currentTime - lastResetTime;
-                          const remainingTime = (frequency  * 60 * 1000) - elapsedTime;
+                          const remainingTime = (frequency * 60 * 1000) - elapsedTime;
 
                           const plantBox = document.getElementById('plant-' + plantId);
 

@@ -39,7 +39,6 @@ def homepage():
         return redirect(url_for('login'))
     finally:
         con.close()
-        
 
 
 @app.route('/editplant/<int:plant_id>', methods=['GET', 'POST'])
@@ -256,6 +255,29 @@ def get_last_reset(plant_id):
         return jsonify({'status': 'error', 'message': 'Failed to fetch last reset time'}), 500
     finally:
         con.close()
+
+@app.route('/search_plants', methods=['GET'])
+def search_plants():
+    query = request.args.get('query', '')  # Get the search term from the query string
+    con, mycursor = connect_database()
+    if not con:
+        flash('Database connection failed.', 'danger')
+        return redirect(url_for('homepage'))
+
+    try:
+        # Search for plants where the name or location matches the query
+        mycursor.execute("""
+        SELECT * FROM plants 
+        WHERE plant_name LIKE %s OR location LIKE %s
+        """, ('%' + query + '%', '%' + query + '%'))
+        plants = mycursor.fetchall()
+        return render_template('homepage.html', plants=plants)  # Render homepage with results
+    except pymysql.Error as e:
+        flash(f'Database error: {e}', 'danger')
+        return redirect(url_for('homepage'))
+    finally:
+        con.close()
+
 
 
 
