@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 import pymysql
 import re
 from datetime import datetime
@@ -25,13 +25,17 @@ def signup():
 
 @app.route('/homepage')
 def homepage():
+    if 'user_id' not in session:
+        flash("You are not logged in!", 'danger')
+        return redirect(url_for('login'))
+
     con, mycursor = connect_database()
     if not con:
         return redirect(url_for('login'))
 
     try:
-        mycursor.execute("USE userdata")
-        mycursor.execute("SELECT * FROM plants")
+        # Select only the plants that belong to the logged-in user
+        mycursor.execute("SELECT * FROM plants WHERE user_id=%s", (session['user_id'],))
         plants = mycursor.fetchall()
         return render_template('homepage.html', plants=plants)
     except pymysql.Error as e:
@@ -41,8 +45,13 @@ def homepage():
         con.close()
 
 
+
 @app.route('/editplant/<int:plant_id>', methods=['GET', 'POST'])
 def editplant(plant_id):
+    if 'user_id' not in session:
+        flash("You are not logged in!", 'danger')
+        return redirect(url_for('login'))
+
     con, mycursor = connect_database()
     if not con:
         return redirect(url_for('homepage'))
@@ -57,8 +66,10 @@ def editplant(plant_id):
             return redirect(url_for('editplant', plant_id=plant_id))
 
         try:
-            mycursor.execute("UPDATE plants SET plant_name=%s, location=%s, watering_frequency=%s WHERE id=%s",
-                             (name, location, frequency, plant_id))
+            mycursor.execute("""
+                UPDATE plants SET plant_name=%s, location=%s, watering_frequency=%s 
+                WHERE id=%s AND user_id=%s
+            """, (name, location, frequency, plant_id, session['user_id']))
             con.commit()
             flash("Plant updated successfully!", 'success')
             return redirect(url_for('homepage'))
@@ -67,13 +78,11 @@ def editplant(plant_id):
             con.rollback()
         finally:
             con.close()
-    
+
     try:
-        print(f"Retrieving plant with ID {plant_id}")
-        mycursor.execute("SELECT * FROM plants WHERE id=%s", (plant_id,))
+        mycursor.execute("SELECT * FROM plants WHERE id=%s AND user_id=%s", (plant_id, session['user_id']))
         plant = mycursor.fetchone()
         if plant:
-            print(f"Plant retrieved: {plant}")
             return render_template('editplant.html', plant=plant)
         else:
             flash("Plant not found", 'danger')
@@ -88,13 +97,16 @@ def editplant(plant_id):
 
 @app.route('/deleteplant/<int:plant_id>', methods=['POST'])
 def deleteplant(plant_id):
+    if 'user_id' not in session:
+        flash("You are not logged in!", 'danger')
+        return redirect(url_for('login'))
+
     con, mycursor = connect_database()
     if not con:
         return redirect(url_for('login'))
 
     try:
-        mycursor.execute("USE userdata")
-        mycursor.execute("DELETE FROM plants WHERE id=%s", (plant_id,))
+        mycursor.execute("DELETE FROM plants WHERE id=%s AND user_id=%s", (plant_id, session['user_id']))
         con.commit()
         flash("Plant deleted successfully!", 'success')
         return redirect(url_for('homepage'))
@@ -104,6 +116,7 @@ def deleteplant(plant_id):
             con.rollback()
     finally:
         con.close()
+
 
 
 @app.route('/plantadd')
@@ -157,7 +170,6 @@ def register():
 def login_user():
     email = request.form['email']
     password = request.form['password']
-
     if email == '' or password == '':
         flash("All fields are required", 'danger')
         return redirect(url_for('login'))
@@ -168,10 +180,11 @@ def login_user():
 
     try:
         mycursor.execute("SELECT * FROM credentials WHERE email = %s AND password = %s", (email, password))
-        row = mycursor.fetchone()
-        if not row:
+        user = mycursor.fetchone()
+        if not user:
             flash("Invalid email or password", 'danger')
             return redirect(url_for('login'))
+        session['user_id'] = user[0]  # Store user's ID in session
         flash("Login Successful!", 'success')
         return redirect(url_for('homepage'))
     except pymysql.Error as e:
@@ -179,12 +192,15 @@ def login_user():
     finally:
         con.close()
 
-@app.route('/homepage', methods=['GET'])
-def addingplant():
-    return redirect(url_for('plantadd'))
+
+
 
 @app.route('/add_plant', methods=['POST'])
 def add_plant():
+    if 'user_id' not in session:
+        flash("You are not logged in!", 'danger')
+        return redirect(url_for('login'))
+
     plant_name = request.form['plant_name']
     location = request.form['location']
     watering_frequency = request.form['watering_frequency']
@@ -195,19 +211,11 @@ def add_plant():
         return redirect(url_for('plantadd'))
 
     try:
-        # Create the plants table if it does not exist
+        # Insert the new plant into the database with user_id
         mycursor.execute("""
-        CREATE TABLE IF NOT EXISTS plants (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            plant_name VARCHAR(100),
-            location VARCHAR(100),
-            watering_frequency INT,
-            last_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )""")
-        
-        # Insert the new plant into the database
-        mycursor.execute("INSERT INTO plants (plant_name, location, watering_frequency) VALUES (%s, %s, %s)",
-                         (plant_name, location, watering_frequency))
+            INSERT INTO plants (plant_name, location, watering_frequency, user_id) 
+            VALUES (%s, %s, %s, %s)
+        """, (plant_name, location, watering_frequency, session['user_id']))
         con.commit()
         flash("Plant added successfully!", 'success')
         return redirect(url_for('homepage'))
@@ -220,32 +228,41 @@ def add_plant():
         con.close()
 
 
+
 @app.route('/reset_timer/<int:plant_id>', methods=['POST'])
 def reset_timer(plant_id):
+    if 'user_id' not in session:
+        flash("You are not logged in!", 'danger')
+        return jsonify({'status': 'error', 'message': 'You are not logged in!'}), 403
+
     con, mycursor = connect_database()
     if not con:
         return jsonify({'status': 'error', 'message': 'Database connection failed'}), 500
 
     try:
-        mycursor.execute("USE userdata")
-        mycursor.execute("UPDATE plants SET last_reset = CURRENT_TIMESTAMP WHERE id = %s", (plant_id,))
+        # Update only the plant that belongs to the logged-in user
+        mycursor.execute("UPDATE plants SET last_reset = CURRENT_TIMESTAMP WHERE id = %s AND user_id = %s", (plant_id, session['user_id']))
         con.commit()
         return jsonify({'status': 'success', 'message': 'Timer reset successfully'})
     except pymysql.Error as e:
         con.rollback()
-        return jsonify({'status': 'error', 'message': 'Failed to reset timer'}), 500
+        return jsonify({'status': 'error', 'message': f'Failed to reset timer: {e}'}), 500
     finally:
         con.close()
 
+
 @app.route('/get_last_reset/<int:plant_id>', methods=['GET'])
 def get_last_reset(plant_id):
+    if 'user_id' not in session:
+        flash("You are not logged in!", 'danger')
+        return jsonify({'status': 'error', 'message': 'You are not logged in!'}), 403
+
     con, mycursor = connect_database()
     if not con:
         return jsonify({'status': 'error', 'message': 'Database connection failed'}), 500
 
     try:
-        mycursor.execute("USE userdata")
-        mycursor.execute("SELECT last_reset FROM plants WHERE id = %s", (plant_id,))
+        mycursor.execute("SELECT last_reset FROM plants WHERE id = %s AND user_id = %s", (plant_id, session['user_id']))
         last_reset = mycursor.fetchone()
         if last_reset:
             return jsonify({'status': 'success', 'last_reset': last_reset[0].strftime('%Y-%m-%d %H:%M:%S')})
@@ -258,6 +275,10 @@ def get_last_reset(plant_id):
 
 @app.route('/search_plants', methods=['GET'])
 def search_plants():
+    if 'user_id' not in session:
+        flash("You are not logged in!", 'danger')
+        return redirect(url_for('login'))
+
     query = request.args.get('query', '')  # Get the search term from the query string
     con, mycursor = connect_database()
     if not con:
@@ -265,11 +286,11 @@ def search_plants():
         return redirect(url_for('homepage'))
 
     try:
-        # Search for plants where the name or location matches the query
+        # Search for plants where the name or location matches the query and is owned by the logged-in user
         mycursor.execute("""
         SELECT * FROM plants 
-        WHERE plant_name LIKE %s OR location LIKE %s
-        """, ('%' + query + '%', '%' + query + '%'))
+        WHERE (plant_name LIKE %s OR location LIKE %s) AND user_id=%s
+        """, ('%' + query + '%', '%' + query + '%', session['user_id']))
         plants = mycursor.fetchall()
         return render_template('homepage.html', plants=plants)  # Render homepage with results
     except pymysql.Error as e:
@@ -277,6 +298,7 @@ def search_plants():
         return redirect(url_for('homepage'))
     finally:
         con.close()
+
 
 
 
