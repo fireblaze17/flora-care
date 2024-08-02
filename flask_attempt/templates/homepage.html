@@ -1,7 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
+    
     <title>Home Page</title>
+    
+</script>
+
     <style>
         body {
             background: linear-gradient(to right, #004d40, #66bb6a);
@@ -103,16 +107,11 @@
     <form action="{{ url_for('plantadd') }}" method="get">
         <button class="add-plant-button" type="submit">Add Plant</button>
     </form>
+    <script src="flask_attempt/templates/firebase-init.js"></script>
     <script>
+       
+        
         let timers = {};
-
-        function saveTimerState(plantId, lastResetTime) {
-            localStorage.setItem(`plant_${plantId}_last_reset`, lastResetTime);
-        }
-
-        function getTimerState(plantId) {
-            return localStorage.getItem(`plant_${plantId}_last_reset`);
-        }
 
         function resetTimer(plantId, frequency) {
             fetch(`/reset_timer/${plantId}`, {
@@ -128,9 +127,6 @@
                       timers[plantId] = setTimeout(() => {
                           plantBox.classList.add('red');
                       }, frequency * 60 * 1000); // Convert hours to milliseconds
-
-                      // Save the last reset time to local storage
-                      saveTimerState(plantId, new Date().toISOString());
 
                       // Update the server to mark as reset
                       fetch(`/update_plant_state/${plantId}`, {
@@ -154,14 +150,12 @@
             plantData.forEach(plant => {
                 const plantId = plant[0];
                 const frequency = plant[3];
-                const savedLastReset = getTimerState(plantId);
-
                 fetch(`/get_last_reset/${plantId}`, {
                     method: 'GET'
                 }).then(response => response.json())
                   .then(data => {
                       if (data.status === 'success') {
-                          const lastResetTime = savedLastReset ? new Date(savedLastReset).getTime() : new Date(data.last_reset).getTime();
+                          const lastResetTime = new Date(data.last_reset).getTime();
                           const currentTime = Date.now();
                           const elapsedTime = currentTime - lastResetTime;
                           const remainingTime = (frequency * 60 * 1000) - elapsedTime;
@@ -169,8 +163,10 @@
                           const plantBox = document.getElementById('plant-' + plantId);
 
                           if (remainingTime <= 0) {
+                              // Immediately add red class if overdue
                               plantBox.classList.add('red');
                           } else {
+                              // Add red class after remaining time
                               timers[plantId] = setTimeout(() => {
                                   plantBox.classList.add('red');
                               }, remainingTime);
@@ -181,8 +177,6 @@
                   }).catch(error => console.error('Error:', error));
             });
         });
-
-        
     </script>
 </body>
 </html>
